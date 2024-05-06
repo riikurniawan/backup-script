@@ -1,0 +1,7 @@
+files:
+  - "/etc/ssh/sshd_config" 
+  - "/etc/passwd"
+  - "/etc/group"
+
+directories:
+  - "/var/log"
