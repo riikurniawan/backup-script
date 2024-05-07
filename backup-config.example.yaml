@@ -2,6 +2,14 @@ files:
   - "/etc/ssh/sshd_config" 
   - "/etc/passwd"
   - "/etc/group"
-
 directories:
   - "/var/log"
+databases:
+  sekolahdb:
+    type: mysql
+    username: root
+    password: root
+  kampus:
+    type: mysql
+    username: root
+    password: root
