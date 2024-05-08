@@ -13,9 +13,9 @@ dest="/root/backup"
 source_files="/root/.backup-config.yaml"
 
 # create archive filename.
-curr_date=$(date +'%F_%H-%M-%S')
+now=$(date +'%F_%H-%M-%S')
 hostname=$(hostname -s)
-archive_filename="$hostname-$curr_date.tar.gz"
+archive_filename="$hostname-$now.tar.gz"
 
 # log files
 log_filename="/root/$hostname-backup.log"
@@ -38,6 +38,8 @@ log() {
 		"success") echo -e "[$datetime] SUCCESS: $msg" >> $log_filename
 		;;
 		"error") echo -e "[$datetime] ERROR: $msg" >> $log_filename
+		;;	
+		"warning") echo -e "[$datetime] WARNING: $msg" >> $log_filename
 		;;	
 		"info") echo -e "[$datetime] INFO: $msg" >> $log_filename
 		;;	
@@ -107,36 +109,24 @@ checking() {
 
 ###################################################################
 
-#                          databases_dump()                       #
-
-###################################################################
-
-# database dump process
-databases_dump() {
-	local type=$1
-	local username=$2
-	local password=$3
-	local db=$4
-	local dbport=$5
-}
-
-
-###################################################################
-
 #                          backup_process()                       #
 
 ###################################################################
 
 # backup process
 backup_process() {
-	backup_files=$(yq .files $source_files)
-	backup_dir=$(yq .directories $source_files)
-	backup_dir=$(yq .databases $source_files)
+	# Print start status message.
+	echo -e "\nBacking up ...."
+	date
+	echo
+
+	backup_files=$(yq ".files" $source_files)
+	backup_dir=$(yq ".directories" $source_files)
+	backup_db=$(yq ".databases | keys | .[]" $source_files)
 	
 	list_files=""
 	list_dirs=""
 	list_db=""
-
 
 	# loop all files then check file is exists
 	for file in $(yq .files[] $source_files); do
@@ -166,13 +156,83 @@ backup_process() {
 		fi
 	done
 
-	# Print start status message.
-	echo -e "\nBacking up ...."
-	date
-	echo
+
+	# loop all database name
+	sql_files=""
+	for db_name in $backup_db; do
+		echo "Backing up database: $db_name"
+		# get attr then store to variable
+		db_type=$(yq ".databases.$db_name.type" $source_files)
+		db_user=$(yq ".databases.$db_name.username" $source_files)
+    		db_pass=$(yq ".databases.$db_name.password" $source_files)
+
+		# if attr required not filled
+		if [ "$db_type" == "null" ] && [ "$db_user" == "null" ] && [ "$db_pass" == "null" ]; then
+			echo "Required attributed for database $db_name must filled!"
+			echo "Backup for database $db_name will skipped!"
+			log "warning" "Required attributed for database $db_name must filled!"
+			log "info" "Backup for database $db_name will skipped!"
+		fi
+
+		# if optional attr is filled 
+	   	if $(yq ".databases.$db_name | has(\"port\")" $source_files); then
+			db_port=$(yq ".databases.$db_name.port" $source_files)	
+		fi
+		
+		case $db_type in
+		 "mysql") 
+			# set output name after dump database
+			output_sql="/tmp/${db_name}-${now}.sql.gz"
+
+			# set mysql password to use mysqldump without password
+			echo -e "[mysqldump]\npassword=$db_pass" > ~/.mylogin.cnf && chmod 600 ~/.mylogin.cnf
+
+			# save mysql out
+			mysql_output=$(mysqldump --defaults-file=~/.mylogin.cnf -u ${db_user} $db_name 2>&1 | gzip -9 > $output_sql)
+
+			# if db_port defined, then add option -P to set the port explicitly			
+			if [ "$db_port" != "null" ]; then
+			    mysql_output=$(mysqldump --defaults-file=~/.mylogin.cnf -u ${db_user} -P ${db_port} $db_name 2>&1 | gzip -9 > $output_sql)
+			else
+			    mysql_output=$(mysqldump --defaults-file=~/.mylogin.cnf -u ${db_user} $db_name 2>&1 | gzip -9 > $output_sql)
+			fi
+
+			# check if mysqldump error then send to log
+                        if [[ $? -ne 0 ]]; then
+                        	log "error" "$mysql_output"
+                        	log "error" "mysqldump: Exited with errors!"
+                        	log "error" "Backup for database $db_name will skipped!"
+                                echo "mysqldump: Exited with errors!" >&2
+                                echo "Backup for database $db_name will skipped!"
+                        fi	
+
+			# append path output file to sql_files
+			sql_files+="$output_sql "
+
+			# remove default-file
+			rm ~/.mylogin.cnf
+
+			echo "Backup database succeded: $db_name"
+		;;
+		*)
+			echo "Database type not matching!"
+			echo "Backup for database $db_name will skipped!"
+			log "warning" "Database type not matching!"
+			log "warning" "Backup for database $db_name will skipped!"
+		;;
+		esac
+	done
+
+	# trim absolute path sql_files just basename
+	for sql_file in $sql_files; do
+		# after get basename sql file save to list_db
+		list_db+=$(basename $sql_file)" "
+	done	
+	
+	list_db=$(echo $list_db | xargs)
 
 	# Backup the files using tar.
-	tar_output=$(tar -czf $dest/$archive_filename $list_files $list_dirs 2>&1)
+	tar_output=$(tar -czf $dest/$archive_filename $list_files $list_dirs -C /tmp $list_db  2>&1)
 
 	# Check the exit status of the tar command
 	if [[ $? -ne 0 ]]; then
