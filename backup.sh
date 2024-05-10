@@ -7,7 +7,7 @@
 ###################################################################
 
 # destination of backup directory
-dest="/root/backup"
+backup_dest="/root/backups"
 
 # list of source files for 
 source_files="/root/.backup-config.yaml"
@@ -15,10 +15,116 @@ source_files="/root/.backup-config.yaml"
 # create archive filename.
 now=$(date +'%F_%H-%M-%S')
 hostname=$(hostname -s)
-archive_filename="$hostname-$now.tar.gz"
+archive_filename="${hostname}_${now}.tar.gz"
 
 # log files
 log_filename="/root/$hostname-backup.log"
+
+
+rotate_process() {
+	# set maximum backups per period
+	max_backups=5
+	
+	# period directory
+	daily_dir="${backup_dest}/daily"
+	weekly_dir="${backup_dest}/weekly"
+	monthly_dir="${backup_dest}/monthly"
+	yearly_dir="${backup_dest}/yearly"
+
+
+	daily_timestamp=86400
+	weekly_timestamp=604800
+	monthly_timestamp=2678400
+
+	file_timestamp=0
+	target_period_dir=""
+
+	for file in "${backup_dest}"/*; do
+		if [ -f "${file}" ]; then
+			file_timestamp=$(date +%s -r "${file}")
+			
+			age=$((file_timestamp - $(date +%s)))
+
+			if [ $age -gt $daily_timestamp ]; then
+				target_period_dir="${daily_dir}"
+		        elif [ $age -gt $weekly_timestamp ]; then
+		            	target_period_dir="${weekly_dir}"
+		        elif [ $age -gt $monthly_timestamp ]; then
+		            	target_period_dir="${monthly_dir}"
+		        else
+		            	target_period_dir="${yearly_dir}"
+		        fi
+
+			if [ -n "${target_period_dir}" ] && [ "${target_period_dir}" != "${backup_dest}" ]; then
+				mv "${file}" "${target_period_dir}"
+			fi			
+
+		fi
+	done 
+	
+	file_timestamp=0
+	target_period_dir=""
+	
+	# Iterate through backup directories
+	for dir in "${daily_dir}" "${weekly_dir}" "${monthly_dir}" "${yearly_dir}"; do
+	    if [ -d "${dir}" ]; then
+	        # Process each file in the directory
+	        for file in "${dir}"/*; do
+	            if [ -f "${file}" ]; then
+	                # Extract file timestamp from filename
+			file_timestamp=$(date +%s -r "${file}")
+	
+	                # Calculate time delta between file timestamp and last backup time
+			age=$((file_timestamp - $(date +%s)))
+	
+			if [ $age -gt $daily_timestamp ]; then
+				target_period_dir="${daily_dir}"
+		        elif [ $age -gt $weekly_timestamp ]; then
+		            	target_period_dir="${weekly_dir}"
+		        elif [ $age -gt $monthly_timestamp ]; then
+		            	target_period_dir="${monthly_dir}"
+		        else
+		            	target_period_dir="${yearly_dir}"
+		        fi
+
+			if [ -n "${target_period_dir}" ] && [ "${target_period_dir}" != "${backup_dest}" ]; then
+				mv "${file}" "${target_period_dir}"
+			fi			
+
+
+	            fi
+	        done
+	
+	        # Remove old backup files if exceeding maximum limit
+	        cd "${dir}"
+	        for file in $(ls -t | sort -r); do
+	            if [ $(ls -1 | wc -l) -gt ${max_backups} ]; then
+	                rm -f "${file}"
+	            fi
+	        done
+	    fi
+	done
+}
+rotate_process
+exit
+
+# display help
+display_help() {
+	echo -e "\nUsage:
+	backup.sh [-h]
+	backup.sh backup 
+	backup.sh rotate
+	
+	Backup or rotate files backups.
+	
+	Commands
+	  backup      		backup the files, directory or database from the given config file 
+	  rotate		rotate all backup files (daily, weekly, monthly)
+	
+	Option:
+	  -h, --help		display this help
+	  "
+}
 
 ###################################################################
 
@@ -84,13 +190,27 @@ check_config_file() {
 
 # checking backup destination dir
 check_dest_dir() {
-	if [[ ! -d $dest ]]; then
-		echo "Directory destination $dest DOES NOT EXIST!!"
-		echo "Creating directory $dest ..."
-		log "info" "Directory destination $dest DOES NOT EXISTS!!"
-		log "info" "Creating directory $dest"
+	if [[ ! -d $backup_dest ]]; then
+		echo "Directory destination $backup_dest DOES NOT EXIST!!"
+		log "info" "Directory destination $backup_dest DOES NOT EXISTS!!"
+
+		echo "Creating directory $backup_dest ..."
+		log "info" "Creating directory $backup_dest"
+		mkdir $backup_dest
 		sleep 2
-		mkdir $dest
+
+		echo "Creating directory ${backup_dest}/daily"
+		log "info" "Creating directory ${backup_dest}/daily"
+		sleep 1
+		echo "Creating directory ${backup_dest}/weekly"
+		log "info" "Creating directory ${backup_dest}/weekly"
+		sleep 1
+		echo "Creating directory ${backup_dest}/monthly"
+		log "info" "Creating directory ${backup_dest}/monthly"
+		sleep 1
+		echo "Creating directory ${backup_dest}/yearly"
+		log "info" "Creating directory ${backup_dest}/yearly"
+		mkdir $backup_dest/{daily,weekly,monthly,yearly}
 	fi
 }
 
@@ -120,8 +240,8 @@ backup_process() {
 	date
 	echo
 
-	backup_files=$(yq ".files" $source_files)
-	backup_dir=$(yq ".directories" $source_files)
+	backup_files=$(yq ".files[]" $source_files)
+	backup_dirs=$(yq ".directories[]" $source_files)
 	backup_db=$(yq ".databases | keys | .[]" $source_files)
 	
 	list_files=""
@@ -129,7 +249,7 @@ backup_process() {
 	list_db=""
 
 	# loop all files then check file is exists
-	for file in $(yq .files[] $source_files); do
+	for file in $backup_files; do
 		echo "Checking file: $file"
 		sleep 1
 		
@@ -143,7 +263,7 @@ backup_process() {
 	done
 
 	# loop all dirs then check dir is exists
-	for dir in $(yq .directories[] $source_files); do
+	for dir in $backup_dirs; do
 		echo "Checking directory: $dir"
 		sleep 1
 		
@@ -232,7 +352,7 @@ backup_process() {
 	list_db=$(echo $list_db | xargs)
 
 	# Backup the files using tar.
-	tar_output=$(tar -czf $dest/$archive_filename $list_files $list_dirs -C /tmp $list_db  2>&1)
+	tar_output=$(tar -czf $backup_dest/$archive_filename $list_files $list_dirs -C /tmp $list_db 2>&1)
 
 	# Check the exit status of the tar command
 	if [[ $? -ne 0 ]]; then
@@ -246,13 +366,13 @@ backup_process() {
 
 	# Print end status message.
 	echo
-	if [[ -f $dest/$archive_filename ]]; then
-        	log "success" "Backup completed $dest/$archive_filename"
+	if [[ -f $backup_dest/$archive_filename ]]; then
+        	log "success" "Backup completed $backup_dest/$archive_filename"
 
-		echo -e "Backup completed $dest/$archive_filename\n"
+		echo -e "Backup completed $backup_dest/$archive_filename\n"
 
-		# Long listing of files in $dest to check file sizes.
-		ls -lh $dest/$archive_filename
+		# Long listing of files in $backup_dest to check file sizes.
+		ls -lh $backup_dest/$archive_filename
 	fi
 
 }
