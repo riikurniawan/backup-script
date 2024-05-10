@@ -18,113 +18,102 @@ hostname=$(hostname -s)
 archive_filename="${hostname}_${now}.tar.gz"
 
 # log files
-log_filename="/root/$hostname-backup.log"
+log_filename="$HOME/$hostname-backup.log"
 
+# set maximum backups per period
+max_backups=3
 
-rotate_process() {
-	# set maximum backups per period
-	max_backups=5
-	
-	# period directory
-	daily_dir="${backup_dest}/daily"
-	weekly_dir="${backup_dest}/weekly"
-	monthly_dir="${backup_dest}/monthly"
-	yearly_dir="${backup_dest}/yearly"
+# periods to keep
+readonly -a PERIODS=(daily weekly monthly yearly)
 
+# how many backup to keep for each period
+readonly -A PERIOD_KEEPS=([daily]=7 [weekly]=4 [monthly]=12 [yearly]=1)
 
-	daily_timestamp=86400
-	weekly_timestamp=604800
-	monthly_timestamp=2678400
+# time of period in seconds
+readonly -A PERIOD_TIMES=([daily]=86400 [weekly]=604800 [monthly]=2419200 [yearly]=31536000)
 
-	file_timestamp=0
-	target_period_dir=""
-
-	for file in "${backup_dest}"/*; do
-		if [ -f "${file}" ]; then
-			file_timestamp=$(date +%s -r "${file}")
-			
-			age=$((file_timestamp - $(date +%s)))
-
-			if [ $age -gt $daily_timestamp ]; then
-				target_period_dir="${daily_dir}"
-		        elif [ $age -gt $weekly_timestamp ]; then
-		            	target_period_dir="${weekly_dir}"
-		        elif [ $age -gt $monthly_timestamp ]; then
-		            	target_period_dir="${monthly_dir}"
-		        else
-		            	target_period_dir="${yearly_dir}"
-		        fi
-
-			if [ -n "${target_period_dir}" ] && [ "${target_period_dir}" != "${backup_dest}" ]; then
-				mv "${file}" "${target_period_dir}"
-			fi			
-
-		fi
-	done 
-	
-	file_timestamp=0
-	target_period_dir=""
-	
-	# Iterate through backup directories
-	for dir in "${daily_dir}" "${weekly_dir}" "${monthly_dir}" "${yearly_dir}"; do
-	    if [ -d "${dir}" ]; then
-	        # Process each file in the directory
-	        for file in "${dir}"/*; do
-	            if [ -f "${file}" ]; then
-	                # Extract file timestamp from filename
-			file_timestamp=$(date +%s -r "${file}")
-	
-	                # Calculate time delta between file timestamp and last backup time
-			age=$((file_timestamp - $(date +%s)))
-	
-			if [ $age -gt $daily_timestamp ]; then
-				target_period_dir="${daily_dir}"
-		        elif [ $age -gt $weekly_timestamp ]; then
-		            	target_period_dir="${weekly_dir}"
-		        elif [ $age -gt $monthly_timestamp ]; then
-		            	target_period_dir="${monthly_dir}"
-		        else
-		            	target_period_dir="${yearly_dir}"
-		        fi
-
-			if [ -n "${target_period_dir}" ] && [ "${target_period_dir}" != "${backup_dest}" ]; then
-				mv "${file}" "${target_period_dir}"
-			fi			
-
-
-	            fi
-	        done
-	
-	        # Remove old backup files if exceeding maximum limit
-	        cd "${dir}"
-	        for file in $(ls -t | sort -r); do
-	            if [ $(ls -1 | wc -l) -gt ${max_backups} ]; then
-	                rm -f "${file}"
-	            fi
-	        done
-	    fi
-	done
-}
-rotate_process
-exit
+# pattern of the archive filename
+readonly -A PERIOD_PATTERNS=([weekly]=+%Y-%m-%d_??-??-?? [monthly]=+%Y-%m-??_??-??-?? [yearly]=+%Y-??-??_??-??-??)
 
 # display help
 display_help() {
 	echo -e "\nUsage:
-	backup.sh [-h]
+	backup.sh [options] [commands [argument...]] 
 	backup.sh backup 
-	backup.sh rotate
+	backup.sh rotate --period [daily | weekly | monthly | yearly] --rsync [user@hostname]
 	
 	Backup or rotate files backups.
 	
 	Commands
 	  backup      		backup the files, directory or database from the given config file 
-	  rotate		rotate all backup files (daily, weekly, monthly)
+	  rotate		rotate all backup files (daily, weekly, monthly, yearly)
 	
 	Option:
 	  -h, --help		display this help
 	  "
 }
+
+rotate_process() {
+	# Iterate through backup directories
+	for dir in $backup_dest; do
+		# loop over names of periods (daily,weekly,monthly,yearly)
+		idx_period=1
+	        for period in "${PERIODS[@]}"; do
+			max_age=$((${PERIOD_KEEPS[$period]} * ${PERIOD_TIMES[$period]}))
+			next_period=${PERIODS[$idx_period]}
+
+			# loop over files
+			for file in `ls -Art "${dir}/${period}"`; do
+				timestamp_file=`date +%s -r "${dir}/${period}/${file}"`
+				age=$(($(date +%s) - $timestamp_file))
+
+				if [[ $age -gt $max_age ]]; then
+					if [[ "${next_period}" != "" ]]; then
+						pattern=$(date -d @$timestamp_file ${PERIOD_PATTERNS[$next_period]})
+						
+						if ! compgen -G "${dir}/${next_period}/*.$pattern.*" > /dev/null; then
+						        # Remove old backup files if exceeding maximum limit
+						        for old_file in $(ls -t "$dir/$next_period" | sort -r); do
+						            	if [ $(ls -A | wc -l) -gt ${max_backups} ]; then
+						                	rm -f "${old_file}"
+								else
+									mv ${dir}/${period}/${file} ${dir}/${next_period}/
+								fi
+						        done
+
+
+						else 
+							rm ${dir}/${period}/$file
+						fi	
+					else
+						rm ${dir}/${period}/$file
+					fi
+				fi
+			done
+			let idx_periode++
+	        done
+	done
+	
+
+
+
+
+
+
+
+}
+
+# display help to list options allowed
+short_opts=h
+long_opts=help
+
+set +e
+OPTS=$(getopt -a -n backup.sh -o $short_opts -l $long_opts -- "$@")
+if [ $? -ne 0 ]; then
+  display_help
+  exit 1
+fi
+set -e
 
 ###################################################################
 
@@ -222,7 +211,6 @@ check_dest_dir() {
 
 # checking before backup process
 checking() {
-	am_i_root
 	check_config_file
 	check_dest_dir
 }
@@ -308,31 +296,39 @@ backup_process() {
 			echo -e "[mysqldump]\npassword=$db_pass" > ~/.mylogin.cnf && chmod 600 ~/.mylogin.cnf
 
 			# save mysql out
-			mysql_output=$(mysqldump --defaults-file=~/.mylogin.cnf -u ${db_user} $db_name 2>&1 | gzip -9 > $output_sql)
-
+			mysql_exit_code=0
 			# if db_port defined, then add option -P to set the port explicitly			
 			if [ "$db_port" != "null" ]; then
-			    mysql_output=$(mysqldump --defaults-file=~/.mylogin.cnf -u ${db_user} -P ${db_port} $db_name 2>&1 | gzip -9 > $output_sql)
+				mysql_output=$(mysqldump --defaults-file=~/.mylogin.cnf -u ${db_user} -P ${db_port} $db_name 2> ~/.my-backup.err | gzip -9 > $output_sql)
 			else
-			    mysql_output=$(mysqldump --defaults-file=~/.mylogin.cnf -u ${db_user} $db_name 2>&1 | gzip -9 > $output_sql)
+				mysql_output=$(mysqldump --defaults-file=~/.mylogin.cnf -u ${db_user} $db_name 2> ~/.my-backup.err | gzip -9 > $output_sql)
 			fi
+			
+			errors=$(cat ~/.my-backup.err)
 
 			# check if mysqldump error then send to log
-                        if [[ $? -ne 0 ]]; then
-                        	log "error" "$mysql_output"
+                        if [[ $errors != "" ]]; then
+                        	log "error" "$errors"
                         	log "error" "mysqldump: Exited with errors!"
                         	log "error" "Backup for database $db_name will skipped!"
                                 echo "mysqldump: Exited with errors!" >&2
                                 echo "Backup for database $db_name will skipped!"
-                        fi	
 
+				# remove error log mysqldump
+				rm ~/.my-backup.err
+
+				# remove empty mysql backup
+				rm $output_sql
+			else
 			# append path output file to sql_files
 			sql_files+="$output_sql "
+
+			echo "Backup database succeded: $db_name"
+                        fi	
 
 			# remove default-file
 			rm ~/.mylogin.cnf
 
-			echo "Backup database succeded: $db_name"
 		;;
 		*)
 			echo "Database type not matching!"
@@ -352,7 +348,8 @@ backup_process() {
 	list_db=$(echo $list_db | xargs)
 
 	# Backup the files using tar.
-	tar_output=$(tar -czf $backup_dest/$archive_filename $list_files $list_dirs -C /tmp $list_db 2>&1)
+	first_period=${PERIODS[0]}
+	tar_output=$(tar -czf $backup_dest/$first_period/$archive_filename $list_files $list_dirs -C /tmp $list_db 2>&1)
 
 	# Check the exit status of the tar command
 	if [[ $? -ne 0 ]]; then
@@ -363,19 +360,90 @@ backup_process() {
 		echo "Script will exited!" >&2
 		exit 1
 	fi
+	
+	# remove database dump at /tmp
+	rm /tmp/$list_db
 
 	# Print end status message.
 	echo
-	if [[ -f $backup_dest/$archive_filename ]]; then
-        	log "success" "Backup completed $backup_dest/$archive_filename"
+	if [[ -f $backup_dest/$first_period/$archive_filename ]]; then
+        	log "success" "Backup completed $backup_dest/$first_period/$archive_filename"
 
-		echo -e "Backup completed $backup_dest/$archive_filename\n"
+		echo -e "Backup completed $backup_dest/$first_period/$archive_filename\n"
 
 		# Long listing of files in $backup_dest to check file sizes.
-		ls -lh $backup_dest/$archive_filename
+		ls -lh $backup_dest/$first_period/$archive_filename
 	fi
 
 }
 
-checking
-backup_process
+# Runs the given command
+# @param command    Command: backup, rotate
+run_command() {
+  if [[ "${1}" == "" ]]; then
+    log "Can not run empty command"
+    exit 1
+  fi
+  case "$1" in
+    'backup')
+      backup_process
+      ;;
+    'rotate')
+      rotate_process
+      ;;
+  esac
+}
+
+# Parse given options and set global variables
+parse_opts() {
+  eval set -- "$OPTS"
+  while true; do
+    case "$1" in
+      '-h'|'--help')
+        display_help
+        exit 0
+        ;;
+	'--')
+        shift
+        break
+        ;;
+      *)
+        echo "Unknown option: $1"
+        display_help
+        exit 1
+        ;;
+     esac
+  done
+
+  # remaining args, check for command
+  ARGC=$#
+  if [ $ARGC -lt 1 ]; then
+    echo "Command missing (backup, rotate)"
+    display_help
+    exit 1
+  fi
+
+  COMMAND=$1
+  case "$COMMAND" in
+	'backup')
+		# none checking
+	;;
+        'rotate')
+      	;;
+    	*)
+	      	echo "Unknown command: $COMMAND"
+	      	display_help
+	      	exit 1
+      	;;
+  esac
+}
+
+main() {
+	am_i_root
+	parse_opts 
+
+	checking
+	run_command ${COMMAND}
+}
+
+main
