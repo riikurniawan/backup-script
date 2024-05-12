@@ -67,7 +67,7 @@ Usage:
 	Backup or rotate files backups.
 
 	Commands
-	  backup      	backup the files, directory or database from the given config file
+	  backup      		backup the files, directory or database from the given config file
 	  rotate		rotate all backup files (daily, weekly, monthly, yearly)
 
 	Options:
