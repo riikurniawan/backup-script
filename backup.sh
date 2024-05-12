@@ -55,6 +55,10 @@ display_help() {
 
 rotate_process() {
 	# Iterate through backup directories
+	echo -e "Rotate process...\n"
+	log "info" "Rotate process..."
+	sleep 2
+
 	for dir in $BACKUP_DEST; do
 		# loop over names of periods (daily,weekly,monthly,yearly)
 		idx_period=1
@@ -62,12 +66,18 @@ rotate_process() {
 			max_age=$((${PERIOD_KEEPS[$period]} * ${PERIOD_TIMES[$period]}))
 			next_period=${PERIODS[$idx_period]}
 
+			echo "Checking files at directory: ${dir}/${period}"
+			log "info" "Checking files at directory: ${dir}/${period}"
+
 			# loop over files
 			for file in `ls -Art "${dir}/${period}"`; do
 				timestamp_file=`date +%s -r "${dir}/${period}/${file}"`
 				age=$(($(date +%s) - $timestamp_file))
 
+				file_age_readable=$(date -d @$age +"%d days %H hours %M minutes %S seconds")
+
 				if [[ $age -gt $max_age ]]; then
+					echo -e "\nFound file: ${dir}/${period}/${file} has expired ${file_age_readable}" 
 					if [[ "${next_period}" != "" ]]; then
 						pattern=$(date -d @$timestamp_file ${PERIOD_PATTERNS[$next_period]})
 						
@@ -76,21 +86,38 @@ rotate_process() {
 							old_file_target=$(ls -tr "$dir/$next_period" | head -1)
 
 							if [ $count_file_target -eq ${MAX_BACKUPS} ]; then
+								echo "Remove file in next period exceeded amount of per period"
+								log "info" "Remove file in next period exceeded amount of per period"
+								echo "Deleted old file: ${dir}/${next_period}/$old_file_target"
+								log "info" "Deleted old file: ${dir}/${next_period}/$old_file_target"
 								rm ${dir}/${next_period}/$old_file_target
 
+								echo "Move file: ${dir}/${period}/${file} -> ${dir}/${next_period}/"
+								log "info" "Move file: ${dir}/${period}/${file} -> ${dir}/${next_period}/"
 								mv ${dir}/${period}/${file} ${dir}/${next_period}/
 							else
+								echo "Move file: ${dir}/${period}/${file} -> ${dir}/${next_period}/"
+								log "info" "Move file: ${dir}/${period}/${file} -> ${dir}/${next_period}/"
 								mv ${dir}/${period}/${file} ${dir}/${next_period}/
 							fi
 
 						else 
+							echo -e "\nRemove file that exists in period ${next_period}"
+							log "info" "Remove file that exists in period ${next_period}"
+							echo "Deleted file: ${dir}/${period}/$file"
+							log "info" "Deleted file: ${dir}/${period}/$file"
 							rm ${dir}/${period}/$file
 						fi	
 					else
+						echo -e "\nRemove files that expired time keeping"
+						log "info" "Remove files that expired time keeping"
+						echo "Deleted file: ${dir}/${period}/${file}"
+						log "info" "Deleted file: ${dir}/${period}/${file}"
 						rm ${dir}/${period}/$file
 					fi
 				fi
 			done
+			echo -e "\nLeaving directory ${dir}/${period}"
 			let idx_periode++
 	        done
 	done
@@ -223,7 +250,7 @@ backup_process() {
 
 	backup_files=$(yq ".files[]" $SOURCE_FILES)
 	backup_dirs=$(yq ".directories[]" $SOURCE_FILES)
-	backup_db=$(yq 'has("database")' $SOURCE_FILES)
+	backup_db=$(yq "has(\"database\")" $SOURCE_FILES)
 	
 	list_files=""
 	list_dirs=""
@@ -256,8 +283,6 @@ backup_process() {
 			list_dirs+="$dir/ "
 		fi
 	done
-
-
 	# loop all database name
 	sql_files=""
 	if [ $backup_db ]; then
@@ -267,7 +292,8 @@ backup_process() {
 			# get attr then store to variable
 			db_type=$(yq ".databases.$db_name.type" $SOURCE_FILES)
 			db_user=$(yq ".databases.$db_name.username" $SOURCE_FILES)
-				db_pass=$(yq ".databases.$db_name.password" $SOURCE_FILES)
+			db_pass=$(yq ".databases.$db_name.password" $SOURCE_FILES)
+			db_port=$(yq ".databases.$db_name | has(\"port\")" $SOURCE_FILES)
 
 			# if attr required not filled
 			if [ "$db_type" == "null" ] && [ "$db_user" == "null" ] && [ "$db_pass" == "null" ]; then
@@ -277,11 +303,6 @@ backup_process() {
 				log "info" "Backup for database $db_name will skipped!"
 			fi
 
-			# if optional attr is filled 
-			if $(yq ".databases.$db_name | has(\"port\")" $SOURCE_FILES); then
-				db_port=$(yq ".databases.$db_name.port" $SOURCE_FILES)	
-			fi
-			
 			case $db_type in
 			"mysql") 
 				# set output name after dump database
@@ -290,23 +311,22 @@ backup_process() {
 				# set mysql password to use mysqldump without password
 				echo -e "[mysqldump]\npassword=$db_pass" > ~/.mylogin.cnf && chmod 600 ~/.mylogin.cnf
 
-				# save mysql out
-				mysql_exit_code=0
 				# if db_port defined, then add option -P to set the port explicitly			
-				if [ "$db_port" != "null" ]; then
-					mysql_output=$(mysqldump --defaults-file=~/.mylogin.cnf -u ${db_user} -P ${db_port} $db_name 2> ~/.my-backup.err | gzip -9 > $output_sql)
+				if [[ $db_port != "false" ]]; then
+					db_port=$(yq ".databases.$db_name.port" $SOURCE_FILES)	
+					mysql_output=$(mysqldump --defaults-file=~/.mylogin.cnf -u ${db_user} --port=${db_port} $db_name 2> ~/.my-backup.err | gzip -9 > $output_sql)
 				else
 					mysql_output=$(mysqldump --defaults-file=~/.mylogin.cnf -u ${db_user} $db_name 2> ~/.my-backup.err | gzip -9 > $output_sql)
 				fi
 				
 				errors=$(cat ~/.my-backup.err)
 				# check if mysqldump error then send to log
-							if [[ $errors != "" ]]; then
-								log "error" "$errors"
-								log "error" "mysqldump: Exited with errors!"
-								log "error" "Backup for database $db_name will skipped!"
-									echo "mysqldump: Exited with errors!" >&2
-									echo "Backup for database $db_name will skipped!"
+				if [[ $errors != "" ]]; then
+					log "error" "$errors"
+					log "error" "mysqldump: Exited with errors!"
+					log "error" "Backup for database $db_name will skipped!"
+					echo "mysqldump: Exited with errors!" >&2
+					echo "Backup for database $db_name will skipped!"
 
 					# remove error log mysqldump
 					rm ~/.my-backup.err
@@ -319,7 +339,7 @@ backup_process() {
 		
 					echo "Backup database succeded: $db_name"
 					log "success" "Backup database succeded $db_name"
-							fi	
+				fi	
 
 				# remove default-file
 				rm ~/.mylogin.cnf
@@ -333,12 +353,13 @@ backup_process() {
 			esac
 		done
 
-		# trim absolute path sql_files just basename
-		for sql_file in $sql_files; do
-			# after get basename sql file save to list_db
-			list_db+=$(basename $sql_file)" "
-		done	
 	fi
+	# trim absolute path sql_files just basename
+	for sql_file in $sql_files; do
+		# after get basename sql file save to list_db
+		list_db+=$(basename $sql_file)" "
+	done	
+
 	
 	# count file at destination
 	first_period=${PERIODS[0]}
@@ -364,10 +385,11 @@ backup_process() {
 	fi
 	
 	# remove database dump at /tmp
-	rm /tmp/$list_db
+	for db_file in $list_db; do
+		rm "/tmp/$db_file"
+	done
 
 	# Print end status message.
-	echo $BACKUP_DEST/$first_period/$ARCHIVE_FILENAME
 	if [[ -f $BACKUP_DEST/$first_period/$ARCHIVE_FILENAME ]]; then
         	log "success" "Backup completed $BACKUP_DEST/$first_period/$ARCHIVE_FILENAME"
 
