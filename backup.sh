@@ -223,7 +223,7 @@ backup_process() {
 
 	backup_files=$(yq ".files[]" $SOURCE_FILES)
 	backup_dirs=$(yq ".directories[]" $SOURCE_FILES)
-	backup_db=$(yq ".databases | keys | .[]" $SOURCE_FILES)
+	backup_db=$(yq 'has("database")' $SOURCE_FILES)
 	
 	list_files=""
 	list_dirs=""
@@ -260,82 +260,85 @@ backup_process() {
 
 	# loop all database name
 	sql_files=""
-	for db_name in $backup_db; do
-		echo "Backing up database: $db_name"
-		# get attr then store to variable
-		db_type=$(yq ".databases.$db_name.type" $SOURCE_FILES)
-		db_user=$(yq ".databases.$db_name.username" $SOURCE_FILES)
-    		db_pass=$(yq ".databases.$db_name.password" $SOURCE_FILES)
+	if [[ $backup_db != false ]]; then
+		backup_db=$(yq ".databases | keys | .[]" $SOURCE_FILES)
+		for db_name in $backup_db; do
+			echo "Backing up database: $db_name"
+			# get attr then store to variable
+			db_type=$(yq ".databases.$db_name.type" $SOURCE_FILES)
+			db_user=$(yq ".databases.$db_name.username" $SOURCE_FILES)
+				db_pass=$(yq ".databases.$db_name.password" $SOURCE_FILES)
 
-		# if attr required not filled
-		if [ "$db_type" == "null" ] && [ "$db_user" == "null" ] && [ "$db_pass" == "null" ]; then
-			echo "Required attributed for database $db_name must filled!"
-			echo "Backup for database $db_name will skipped!"
-			log "warning" "Required attributed for database $db_name must filled!"
-			log "info" "Backup for database $db_name will skipped!"
-		fi
+			# if attr required not filled
+			if [ "$db_type" == "null" ] && [ "$db_user" == "null" ] && [ "$db_pass" == "null" ]; then
+				echo "Required attributed for database $db_name must filled!"
+				echo "Backup for database $db_name will skipped!"
+				log "warning" "Required attributed for database $db_name must filled!"
+				log "info" "Backup for database $db_name will skipped!"
+			fi
 
-		# if optional attr is filled 
-	   	if $(yq ".databases.$db_name | has(\"port\")" $SOURCE_FILES); then
-			db_port=$(yq ".databases.$db_name.port" $SOURCE_FILES)	
-		fi
-		
-		case $db_type in
-		 "mysql") 
-			# set output name after dump database
-			output_sql="/tmp/${db_name}-${NOW}.sql.gz"
-
-			# set mysql password to use mysqldump without password
-			echo -e "[mysqldump]\npassword=$db_pass" > ~/.mylogin.cnf && chmod 600 ~/.mylogin.cnf
-
-			# save mysql out
-			mysql_exit_code=0
-			# if db_port defined, then add option -P to set the port explicitly			
-			if [ "$db_port" != "null" ]; then
-				mysql_output=$(mysqldump --defaults-file=~/.mylogin.cnf -u ${db_user} -P ${db_port} $db_name 2> ~/.my-backup.err | gzip -9 > $output_sql)
-			else
-				mysql_output=$(mysqldump --defaults-file=~/.mylogin.cnf -u ${db_user} $db_name 2> ~/.my-backup.err | gzip -9 > $output_sql)
+			# if optional attr is filled 
+			if $(yq ".databases.$db_name | has(\"port\")" $SOURCE_FILES); then
+				db_port=$(yq ".databases.$db_name.port" $SOURCE_FILES)	
 			fi
 			
-			errors=$(cat ~/.my-backup.err)
-			# check if mysqldump error then send to log
-                        if [[ $errors != "" ]]; then
-                        	log "error" "$errors"
-                        	log "error" "mysqldump: Exited with errors!"
-                        	log "error" "Backup for database $db_name will skipped!"
-                                echo "mysqldump: Exited with errors!" >&2
-                                echo "Backup for database $db_name will skipped!"
+			case $db_type in
+			"mysql") 
+				# set output name after dump database
+				output_sql="/tmp/${db_name}-${NOW}.sql.gz"
 
-				# remove error log mysqldump
-				rm ~/.my-backup.err
+				# set mysql password to use mysqldump without password
+				echo -e "[mysqldump]\npassword=$db_pass" > ~/.mylogin.cnf && chmod 600 ~/.mylogin.cnf
 
-				# remove empty mysql backup
-				rm $output_sql
-			else
-				# append path output file to sql_files
-				sql_files+="$output_sql "
-	
-				echo "Backup database succeded: $db_name"
-				log "success" "Backup database succeded $db_name"
-                        fi	
+				# save mysql out
+				mysql_exit_code=0
+				# if db_port defined, then add option -P to set the port explicitly			
+				if [ "$db_port" != "null" ]; then
+					mysql_output=$(mysqldump --defaults-file=~/.mylogin.cnf -u ${db_user} -P ${db_port} $db_name 2> ~/.my-backup.err | gzip -9 > $output_sql)
+				else
+					mysql_output=$(mysqldump --defaults-file=~/.mylogin.cnf -u ${db_user} $db_name 2> ~/.my-backup.err | gzip -9 > $output_sql)
+				fi
+				
+				errors=$(cat ~/.my-backup.err)
+				# check if mysqldump error then send to log
+							if [[ $errors != "" ]]; then
+								log "error" "$errors"
+								log "error" "mysqldump: Exited with errors!"
+								log "error" "Backup for database $db_name will skipped!"
+									echo "mysqldump: Exited with errors!" >&2
+									echo "Backup for database $db_name will skipped!"
 
-			# remove default-file
-			rm ~/.mylogin.cnf
-		;;
-		*)
-			echo "Database type not matching!"
-			echo "Backup for database $db_name will skipped!"
-			log "warning" "Database type not matching!"
-			log "warning" "Backup for database $db_name will skipped!"
-		;;
-		esac
-	done
+					# remove error log mysqldump
+					rm ~/.my-backup.err
 
-	# trim absolute path sql_files just basename
-	for sql_file in $sql_files; do
-		# after get basename sql file save to list_db
-		list_db+=$(basename $sql_file)" "
-	done	
+					# remove empty mysql backup
+					rm $output_sql
+				else
+					# append path output file to sql_files
+					sql_files+="$output_sql "
+		
+					echo "Backup database succeded: $db_name"
+					log "success" "Backup database succeded $db_name"
+							fi	
+
+				# remove default-file
+				rm ~/.mylogin.cnf
+			;;
+			*)
+				echo "Database type not matching!"
+				echo "Backup for database $db_name will skipped!"
+				log "warning" "Database type not matching!"
+				log "warning" "Backup for database $db_name will skipped!"
+			;;
+			esac
+		done
+
+		# trim absolute path sql_files just basename
+		for sql_file in $sql_files; do
+			# after get basename sql file save to list_db
+			list_db+=$(basename $sql_file)" "
+		done	
+	fi
 	
 	# count file at destination
 	first_period=${PERIODS[0]}
