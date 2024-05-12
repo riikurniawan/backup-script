@@ -38,7 +38,7 @@ readonly -A PERIOD_PATTERNS=([weekly]=+%Y-%m-%d_??-??-?? [monthly]=+%Y-%m-??_??-
 # display help
 display_help() {
 	echo -e "\nUsage:
-	backup.sh [options] [commands [argument...]] 
+	backup.sh [options] [commands] 
 	backup.sh backup 
 	backup.sh rotate
 	
