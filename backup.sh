@@ -260,7 +260,7 @@ backup_process() {
 
 	# loop all database name
 	sql_files=""
-	if [[ $backup_db != false ]]; then
+	if [ $backup_db ]; then
 		backup_db=$(yq ".databases | keys | .[]" $SOURCE_FILES)
 		for db_name in $backup_db; do
 			echo "Backing up database: $db_name"
@@ -367,7 +367,7 @@ backup_process() {
 	rm /tmp/$list_db
 
 	# Print end status message.
-	echo
+	echo $BACKUP_DEST/$first_period/$ARCHIVE_FILENAME
 	if [[ -f $BACKUP_DEST/$first_period/$ARCHIVE_FILENAME ]]; then
         	log "success" "Backup completed $BACKUP_DEST/$first_period/$ARCHIVE_FILENAME"
 
