@@ -110,8 +110,7 @@ That file will rotate from daily directory to weekly directory.
 daily/ -> weekly/workstation_2024-04-21_14-30-00.tar.gz
 ```
 
-> So when backup files will rotate if i runing this command ?
-
+So when backup files will rotate if i runing this command ?
 | Period  | Time period at seconds       | Time will rotate |
 | ------- | ---------------------------- | ---------------- |
 | Daily   | 86400 (60 \* 60 \* 24)       | 14 day           |
