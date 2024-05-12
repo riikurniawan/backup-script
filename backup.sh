@@ -7,21 +7,21 @@
 ###################################################################
 
 # destination of backup directory
-backup_dest="/root/backups"
+BACKUP_DEST="/root/backups"
 
 # list of source files for 
-source_files="/root/.backup-config.yaml"
+SOURCE_FILES="/root/.backup-config.yaml"
 
 # create archive filename.
-now=$(date +'%F_%H-%M-%S')
-hostname=$(hostname -s)
-archive_filename="${hostname}_${now}.tar.gz"
+NOW=$(date +'%F_%H-%M-%S')
+HOSTNAME=$(hostname -s)
+ARCHIVE_FILENAME="${HOSTNAME}_${NOW}.tar.gz"
 
 # log files
-log_filename="$HOME/$hostname-backup.log"
+LOG_FILENAME="$HOME/$HOSTNAME-backup.log"
 
 # set maximum backups per period
-max_backups=3
+MAX_BACKUPS=3
 
 # periods to keep
 readonly -a PERIODS=(daily weekly monthly yearly)
@@ -40,7 +40,7 @@ display_help() {
 	echo -e "\nUsage:
 	backup.sh [options] [commands [argument...]] 
 	backup.sh backup 
-	backup.sh rotate --period [daily | weekly | monthly | yearly] --rsync [user@hostname]
+	backup.sh rotate
 	
 	Backup or rotate files backups.
 	
@@ -55,7 +55,7 @@ display_help() {
 
 rotate_process() {
 	# Iterate through backup directories
-	for dir in $backup_dest; do
+	for dir in $BACKUP_DEST; do
 		# loop over names of periods (daily,weekly,monthly,yearly)
 		idx_period=1
 	        for period in "${PERIODS[@]}"; do
@@ -72,15 +72,16 @@ rotate_process() {
 						pattern=$(date -d @$timestamp_file ${PERIOD_PATTERNS[$next_period]})
 						
 						if ! compgen -G "${dir}/${next_period}/*.$pattern.*" > /dev/null; then
-						        # Remove old backup files if exceeding maximum limit
-						        for old_file in $(ls -t "$dir/$next_period" | sort -r); do
-						            	if [ $(ls -A | wc -l) -gt ${max_backups} ]; then
-						                	rm -f "${old_file}"
-								else
-									mv ${dir}/${period}/${file} ${dir}/${next_period}/
-								fi
-						        done
+							count_file_target=$(ls -A "$dir/$next_period" | wc -l)
+							old_file_target=$(ls -tr "$dir/$next_period" | head -1)
 
+							if [ $count_file_target -eq ${MAX_BACKUPS} ]; then
+								rm ${dir}/${next_period}/$old_file_target
+
+								mv ${dir}/${period}/${file} ${dir}/${next_period}/
+							else
+								mv ${dir}/${period}/${file} ${dir}/${next_period}/
+							fi
 
 						else 
 							rm ${dir}/${period}/$file
@@ -93,14 +94,6 @@ rotate_process() {
 			let idx_periode++
 	        done
 	done
-	
-
-
-
-
-
-
-
 }
 
 # display help to list options allowed
@@ -127,16 +120,16 @@ log() {
 	local msg=$2
 	local datetime=$(date +'%F %T')
 
-	[[ ! -f "$log_filename" ]] && touch "$log_filename"
+	[[ ! -f "$LOG_FILENAME" ]] && touch "$LOG_FILENAME"
 
 	case "$status" in
-		"success") echo -e "[$datetime] SUCCESS: $msg" >> $log_filename
+		"success") echo -e "[$datetime] SUCCESS: $msg" >> $LOG_FILENAME
 		;;
-		"error") echo -e "[$datetime] ERROR: $msg" >> $log_filename
+		"error") echo -e "[$datetime] ERROR: $msg" >> $LOG_FILENAME
 		;;	
-		"warning") echo -e "[$datetime] WARNING: $msg" >> $log_filename
+		"warning") echo -e "[$datetime] WARNING: $msg" >> $LOG_FILENAME
 		;;	
-		"info") echo -e "[$datetime] INFO: $msg" >> $log_filename
+		"info") echo -e "[$datetime] INFO: $msg" >> $LOG_FILENAME
 		;;	
 	esac
 }
@@ -164,9 +157,9 @@ am_i_root() {
 
 # checking config file
 check_config_file() {
-	if [[ ! -f "$source_files" ]]; then
-  		echo "$source_files DOES NOT EXIST!!" >&2
-		log "error" "$source_files DOES NOT EXIST!!"
+	if [[ ! -f "$SOURCE_FILES" ]]; then
+  		echo "$SOURCE_FILES DOES NOT EXIST!!" >&2
+		log "error" "$SOURCE_FILES DOES NOT EXIST!!"
   		exit 1
 	fi
 }
@@ -179,27 +172,27 @@ check_config_file() {
 
 # checking backup destination dir
 check_dest_dir() {
-	if [[ ! -d $backup_dest ]]; then
-		echo "Directory destination $backup_dest DOES NOT EXIST!!"
-		log "info" "Directory destination $backup_dest DOES NOT EXISTS!!"
+	if [[ ! -d $BACKUP_DEST ]]; then
+		echo "Directory destination $BACKUP_DEST DOES NOT EXIST!!"
+		log "info" "Directory destination $BACKUP_DEST NOT EXISTS!!"
 
-		echo "Creating directory $backup_dest ..."
-		log "info" "Creating directory $backup_dest"
-		mkdir $backup_dest
+		echo "Creating directory $BACKUP_DEST..."
+		log "info" "Creating directory $BACKUP_DEST"
+		mkdir $BACKUP_DEST
 		sleep 2
 
-		echo "Creating directory ${backup_dest}/daily"
-		log "info" "Creating directory ${backup_dest}/daily"
+		echo "Creating directory ${BACKUP_DEST}/daily"
+		log "info" "Creating directory ${BACKUP_DEST}/daily"
 		sleep 1
-		echo "Creating directory ${backup_dest}/weekly"
-		log "info" "Creating directory ${backup_dest}/weekly"
+		echo "Creating directory ${BACKUP_DEST}/weekly"
+		log "info" "Creating directory ${BACKUP_DEST}/weekly"
 		sleep 1
-		echo "Creating directory ${backup_dest}/monthly"
-		log "info" "Creating directory ${backup_dest}/monthly"
+		echo "Creating directory ${BACKUP_DEST}monthly"
+		log "info" "Creating directory ${BACKUP_DEST}/monthly"
 		sleep 1
-		echo "Creating directory ${backup_dest}/yearly"
-		log "info" "Creating directory ${backup_dest}/yearly"
-		mkdir $backup_dest/{daily,weekly,monthly,yearly}
+		echo "Creating directory ${BACKUP_DEST}/yearly"
+		log "info" "Creating directory ${BACKUP_DEST}/yearly"
+		mkdir $BACKUP_DEST/{daily,weekly,monthly,yearly}
 	fi
 }
 
@@ -228,9 +221,9 @@ backup_process() {
 	date
 	echo
 
-	backup_files=$(yq ".files[]" $source_files)
-	backup_dirs=$(yq ".directories[]" $source_files)
-	backup_db=$(yq ".databases | keys | .[]" $source_files)
+	backup_files=$(yq ".files[]" $SOURCE_FILES)
+	backup_dirs=$(yq ".directories[]" $SOURCE_FILES)
+	backup_db=$(yq ".databases | keys | .[]" $SOURCE_FILES)
 	
 	list_files=""
 	list_dirs=""
@@ -270,9 +263,9 @@ backup_process() {
 	for db_name in $backup_db; do
 		echo "Backing up database: $db_name"
 		# get attr then store to variable
-		db_type=$(yq ".databases.$db_name.type" $source_files)
-		db_user=$(yq ".databases.$db_name.username" $source_files)
-    		db_pass=$(yq ".databases.$db_name.password" $source_files)
+		db_type=$(yq ".databases.$db_name.type" $SOURCE_FILES)
+		db_user=$(yq ".databases.$db_name.username" $SOURCE_FILES)
+    		db_pass=$(yq ".databases.$db_name.password" $SOURCE_FILES)
 
 		# if attr required not filled
 		if [ "$db_type" == "null" ] && [ "$db_user" == "null" ] && [ "$db_pass" == "null" ]; then
@@ -283,14 +276,14 @@ backup_process() {
 		fi
 
 		# if optional attr is filled 
-	   	if $(yq ".databases.$db_name | has(\"port\")" $source_files); then
-			db_port=$(yq ".databases.$db_name.port" $source_files)	
+	   	if $(yq ".databases.$db_name | has(\"port\")" $SOURCE_FILES); then
+			db_port=$(yq ".databases.$db_name.port" $SOURCE_FILES)	
 		fi
 		
 		case $db_type in
 		 "mysql") 
 			# set output name after dump database
-			output_sql="/tmp/${db_name}-${now}.sql.gz"
+			output_sql="/tmp/${db_name}-${NOW}.sql.gz"
 
 			# set mysql password to use mysqldump without password
 			echo -e "[mysqldump]\npassword=$db_pass" > ~/.mylogin.cnf && chmod 600 ~/.mylogin.cnf
@@ -305,7 +298,6 @@ backup_process() {
 			fi
 			
 			errors=$(cat ~/.my-backup.err)
-
 			# check if mysqldump error then send to log
                         if [[ $errors != "" ]]; then
                         	log "error" "$errors"
@@ -320,15 +312,15 @@ backup_process() {
 				# remove empty mysql backup
 				rm $output_sql
 			else
-			# append path output file to sql_files
-			sql_files+="$output_sql "
-
-			echo "Backup database succeded: $db_name"
+				# append path output file to sql_files
+				sql_files+="$output_sql "
+	
+				echo "Backup database succeded: $db_name"
+				log "success" "Backup database succeded $db_name"
                         fi	
 
 			# remove default-file
 			rm ~/.mylogin.cnf
-
 		;;
 		*)
 			echo "Database type not matching!"
@@ -345,11 +337,18 @@ backup_process() {
 		list_db+=$(basename $sql_file)" "
 	done	
 	
-	list_db=$(echo $list_db | xargs)
+	# count file at destination
+	first_period=${PERIODS[0]}
+	count_file_target=$(ls -A "$BACKUP_DEST/$first_period" | wc -l)
+	old_file_target=$(ls -tr "$BACKUP_DEST/$first_period" | head -1)
+
+	if [ $count_file_target -eq ${MAX_BACKUPS} ]; then
+        	rm ${BACKUP_DEST}/${first_period}/$old_file_target
+        fi
+
 
 	# Backup the files using tar.
-	first_period=${PERIODS[0]}
-	tar_output=$(tar -czf $backup_dest/$first_period/$archive_filename $list_files $list_dirs -C /tmp $list_db 2>&1)
+	tar_output=$(tar -czf $BACKUP_DEST/$first_period/$ARCHIVE_FILENAME $list_files $list_dirs -C /tmp $list_db 2>&1)
 
 	# Check the exit status of the tar command
 	if [[ $? -ne 0 ]]; then
@@ -366,13 +365,13 @@ backup_process() {
 
 	# Print end status message.
 	echo
-	if [[ -f $backup_dest/$first_period/$archive_filename ]]; then
-        	log "success" "Backup completed $backup_dest/$first_period/$archive_filename"
+	if [[ -f $BACKUP_DEST/$first_period/$ARCHIVE_FILENAME ]]; then
+        	log "success" "Backup completed $BACKUP_DEST/$first_period/$ARCHIVE_FILENAME"
 
-		echo -e "Backup completed $backup_dest/$first_period/$archive_filename\n"
+		echo -e "Backup completed $BACKUP_DEST/$first_period/$ARCHIVE_FILENAME\n"
 
-		# Long listing of files in $backup_dest to check file sizes.
-		ls -lh $backup_dest/$first_period/$archive_filename
+		# Long listing of files in $BACKUP_DEST to check file sizes.
+		ls -lh $BACKUP_DEST/$first_period/$ARCHIVE_FILENAME
 	fi
 
 }
@@ -426,9 +425,10 @@ parse_opts() {
   COMMAND=$1
   case "$COMMAND" in
 	'backup')
-		# none checking
+	# none checking
 	;;
         'rotate')
+	# none checking
       	;;
     	*)
 	      	echo "Unknown command: $COMMAND"
