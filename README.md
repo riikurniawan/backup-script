@@ -1,10 +1,10 @@
 # Backup Script
 
-> a shell script to create backups such as files, directories, and databases MySQL based on the given configuration.
+a shell script to create backups such as files, directories, and databases MySQL based on the given configuration.
 
 ## Requirement
 
-> This script need some tools and services to run properly
+This script need some tools and services to run properly
 
 - [yq](https://github.com/mikefarah/yq) parse yaml file.
 - [tar](https://www.gnu.org/software/tar/) an archiving utility
@@ -20,7 +20,7 @@
 
 ## Installation
 
-> Note: <b>This script must running as root user !</b>
+`Note:` <b>This script must running as root user !</b>
 
 Clone this repo `https://github.com/riikurniawan/backup-script.git`
 
