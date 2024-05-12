@@ -7,8 +7,8 @@
 > This script need some tools and services to run properly
 
 - [yq](https://github.com/mikefarah/yq) parse yaml file.
-- [tar](https://www.gnu.org/software/tar/)
-- [gzip](https://www.gnu.org/software/gzip/)
+- [tar](https://www.gnu.org/software/tar/) an archiving utility
+- [gzip](https://www.gnu.org/software/gzip/) compress & decompress files
 - [MySQL](https://www.mysql.com/) (optional) if you want backup database.
 
 ## Features
@@ -112,12 +112,12 @@ daily/ -> weekly/workstation_2024-04-21_14-30-00.tar.gz
 
 > So when backup files will rotate if i runing this command ?
 
-| Period  | Time period at seconds     | Time will rotate |
-| ------- | -------------------------- | ---------------- |
-| Daily   | 86400 (60 _ 60 _ 24)       | 14 day           |
-| Weekly  | 604800 (7 _ 60 _ 60 \* 24) | 4 week           |
-| Monthly | 2419200 (28 _ 60 _ 24)     | 12 month         |
-| Yearly  | 31536000 (365 _ 60 _ 24)   | 1 year           |
+| Period  | Time period at seconds       | Time will rotate |
+| ------- | ---------------------------- | ---------------- |
+| Daily   | 86400 (60 \* 60 \* 24)       | 14 day           |
+| Weekly  | 604800 (7 \* 60 \* 60 \* 24) | 4 week           |
+| Monthly | 2419200 (28 \* 60 \* 24)     | 12 month         |
+| Yearly  | 31536000 (365 \* 60 \* 24)   | 1 year           |
 
 ## Logfile
 
